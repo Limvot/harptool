@@ -40,23 +40,23 @@ static int skip_parens(const string &s, int i) {
   return i;
 }
 
-// Probably the worst recursive descent parser ever written, but it's an easy 
+// Probably the worst recursive descent parser ever written, but it's an easy
 // way to make our assembly language pretty.
 static uint64_t readParenExpression(const string &s, const map<string, Word> &d,
                                     int start=0, int end=-1)
 {
-  uint64_t (* const rPE)(const string&, const map<string, Word>&, int, int) 
+  uint64_t (* const rPE)(const string&, const map<string, Word>&, int, int)
     = readParenExpression;
   if (end == start) return 0;
 
   if (end==-1) end = s.length();
-  
+
   while (isspace(s[start])) start++;
   while (isspace(s[end-1])) end--;
 
   for (int i = start; i < end; i++) {
     if (s[i] == '(') { i = skip_parens(s, i); continue; }
-    
+
     if (s[i] == '<') return rPE(s, d, start, i) << rPE(s, d, i+2, end);
     if (s[i] == '>') return rPE(s, d, start, i) >> rPE(s, d, i+2, end);
   }
@@ -75,7 +75,7 @@ static uint64_t readParenExpression(const string &s, const map<string, Word> &d,
     if (s[i] == '/') return rPE(s, d, start, i) / rPE(s, d, i+1, end);
     if (s[i] == '%') return rPE(s, d, start, i) % rPE(s, d, i+1, end);
     if (s[i] == '&') return rPE(s, d, start, i) & rPE(s, d, i+1, end);
-  } 
+  }
 
   // Unary operators
   if (s[start] == '-') return -rPE(s, d, start+1, end);
@@ -114,12 +114,12 @@ Obj *AsmReader::read(std::istream &input) {
 
   // Build opMap
   for (size_t i = 0; Instruction::instTable[i].opString; i++)
-    opMap[std::string(Instruction::instTable[i].opString)] 
+    opMap[std::string(Instruction::instTable[i].opString)]
                                                        = Instruction::Opcode(i);
 
-  enum { 
+  enum {
     ST_INIT, ST_DEF1, ST_DEF2, ST_PERM, ST_WORD1, ST_SPACE, ST_STRING1,
-    ST_STRING2, ST_BYTE1, ST_BYTE2, ST_ALIGN, ST_INST1, ST_INST2 
+    ST_STRING2, ST_BYTE1, ST_BYTE2, ST_ALIGN, ST_INST1, ST_INST2
   } state(ST_INIT);
 
   enum { OS_NOCHUNK, OS_TEXTCHUNK, OS_DATACHUNK } outstate(OS_NOCHUNK);
@@ -135,7 +135,7 @@ Obj *AsmReader::read(std::istream &input) {
   while ((t = (AsmTokens)f->yylex()) != 0) {
     switch (t) {
       case ASM_T_DIR_DEF:
-        if (state == ST_INIT) state = ST_DEF1; 
+        if (state == ST_INIT) state = ST_DEF1;
         else { asmReaderError(yyline, "Unexpected .def"); }
         break;
       case ASM_T_DIR_PERM:
@@ -188,7 +188,7 @@ Obj *AsmReader::read(std::istream &input) {
             if (outstate != OS_DATACHUNK) {
               outstate = OS_DATACHUNK;
               dc = new DataChunk(next_chunk_name, next_chunk_align?
-                                                  next_chunk_align:wordSize, 
+                                                  next_chunk_align:wordSize,
                                  flagsToWord(permR, permW, permX));
               next_chunk_align = 0;
               o->chunks.push_back(dc);
@@ -196,7 +196,7 @@ Obj *AsmReader::read(std::istream &input) {
               if (global) dc->setGlobal();
             }
             dc->size += wordSize;
-            dc->contents.resize(dc->size); 
+            dc->contents.resize(dc->size);
             wordToBytes(&*(dc->contents.end()-wordSize), yylval.u, wordSize);
           } break;
           case ST_SPACE: {
@@ -316,7 +316,10 @@ Obj *AsmReader::read(std::istream &input) {
         break;
       case ASM_T_INST:
         if (state == ST_INIT) {
-          Instruction::Opcode opc = opMap[yylval.s];
+          map <string, Instruction::Opcode>::iterator opcIterator = opMap.find(yylval.s);
+          if (opcIterator == opMap.end())
+            asmReaderError(yyline, "Invalid instruction");
+          Instruction::Opcode opc = opcIterator->second;
           if (outstate != OS_TEXTCHUNK) {
             tc = new TextChunk(next_chunk_name, next_chunk_align,
                                flagsToWord(permR, permW, permX));
@@ -372,7 +375,7 @@ Obj *AsmReader::read(std::istream &input) {
           case ST_INST2: if (defs.find(yylval.s) != defs.end()) {
                            curInst->setSrcImm(defs[yylval.s]);
                          } else {
-                           Ref *r = new 
+                           Ref *r = new
                              SimpleRef(yylval.s, *curInst->setSrcImm(),
                                curInst->hasRelImm());
                            tc->refs.push_back(r);
@@ -396,7 +399,7 @@ void AsmWriter::write(std::ostream &output, const Obj &obj) {
     Chunk * const &c = obj.chunks[j];
 
     /* Write out the flags. */
-    if (c->flags != prevFlags) { 
+    if (c->flags != prevFlags) {
       bool r, w, x;
       wordToFlags(r, w, x, c->flags);
       output << ".perm ";
@@ -424,7 +427,7 @@ void AsmWriter::write(std::ostream &output, const Obj &obj) {
     } else if (dc) {
       Size i;
       for (i = 0; i < dc->contents.size();) {
-        Size tmpWordSize = (dc->contents.size() - i < wordSize) ? 
+        Size tmpWordSize = (dc->contents.size() - i < wordSize) ?
                              dc->contents.size() - i : wordSize;
 
         i += tmpWordSize;
@@ -463,8 +466,8 @@ Word getHofFlags(Chunk &c) {
   return w;
 }
 
-static void outputWord(std::ostream &out, Word w, 
-                       vector<Byte> &tmp, Size wordSize) 
+static void outputWord(std::ostream &out, Word w,
+                       vector<Byte> &tmp, Size wordSize)
 {
   Size n(0);
   writeWord(tmp, n, wordSize, w);
@@ -480,7 +483,7 @@ void HOFWriter::write(std::ostream &output, const Obj &obj) {
 
   /* Magic number, arch string, and padding. */
   output.write("HARP", 4);
-  output.write(archString.c_str(), archString.length()+1); 
+  output.write(archString.c_str(), archString.length()+1);
   Size padBytes = (wordSize-(4+archString.length()+1)%wordSize)%wordSize;
   for (Size i = 0; i < padBytes; i++) output.put(0);
 
@@ -563,7 +566,7 @@ static Word inputWord(std::istream &input, Size wordSize, vector<Byte> &tmp) {
 
   /* Seek to the next word-aligned place. */
   if (input.tellg()%wordSize) {
-    input.seekg(input.tellg() + 
+    input.seekg(input.tellg() +
                 streampos((wordSize - input.tellg()%wordSize)%wordSize));
   }
 
@@ -616,11 +619,11 @@ Obj *HOFReader::read(std::istream &input) {
   for (Size i = 0; i < nChunks; i++) {
     input.seekg(chunkOffsets[i]);
     string name(inputString(input));
-    Word alignment(inputWord(input, wordSize, tmp)), 
-         flags(inputWord(input, wordSize, tmp)), 
+    Word alignment(inputWord(input, wordSize, tmp)),
+         flags(inputWord(input, wordSize, tmp)),
          hofFlags(inputWord(input, wordSize, tmp)),
-         address(inputWord(input, wordSize, tmp)), 
-         size(inputWord(input, wordSize, tmp)), 
+         address(inputWord(input, wordSize, tmp)),
+         size(inputWord(input, wordSize, tmp)),
          dSize(inputWord(input, wordSize, tmp)),
          nRefs(inputWord(input, wordSize, tmp));
     DataChunk *dc = new DataChunk(name, alignment, flags);
@@ -637,7 +640,7 @@ Obj *HOFReader::read(std::istream &input) {
            offset(inputWord(input, wordSize, tmp)),
            bits(inputWord(input, wordSize, tmp));
       OffsetRef *r =
-        new OffsetRef(rName, dc->contents, offset, bits, wordSize, rFlags&1, 
+        new OffsetRef(rName, dc->contents, offset, bits, wordSize, rFlags&1,
                       ibase);
       dc->refs.push_back(r);
     }
@@ -650,6 +653,6 @@ Obj *HOFReader::read(std::istream &input) {
 
     o->chunks[i] = dc;
   }
-  
+
   return o;
 }
