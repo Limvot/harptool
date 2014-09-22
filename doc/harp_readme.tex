@@ -1,0 +1,191 @@
+\documentclass[10pt,letterpaper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\title{HarpTool Readme}
+\author{Chad D. Kersey, Nathan Braswell}
+
+\begin{document}
+\maketitle
+\section*{Disclaimer}
+This document, like the work it documents, is very much a work in progress.
+Send any corrections, updates, suggestions, or complaints (preferably in patch form, this file is under \texttt{harptool/doc} in the HarpTool repo) to \texttt{cdkersey@gatech.edu}.
+
+\section*{Introduction}
+HARP is two things, a multi-year Heterogeneous Architecture Research Project, and an implementation of a specific Heterogeneous Architecture Research Prototype. This document is an introduction to HarpTool, not an assembly reference. For the way the assembly actually works, please see the other document harp\_iset.
+
+\section*{HarpTool}
+The assembler/linker/emulator/disassembler program for HARP is called HarpTool.
+It is a multiple-function executable, its function selected with the first command line argument.
+When run with no command line arugments the HarpTool executable prints a help message explaining the available command line arguments.
+
+All of the HARP utilities can take an archID as a command line parameter.
+If none is provided, a default will be assumed.
+
+\section*{Contents}
+
+\begin{itemize}
+  \item{Building and Installing}
+  \item{Tests and Examples}
+  \item{Building and Running Examples}
+  \item{Architecture Identifier String}
+  \item{Assembly Syntax}
+  \item{Lanes, Branches}
+  \item{Some Conventions}
+\end{itemize}
+
+\section*{Building and Installing}
+Building and installing HarpTool is done in a standard unix way - make and (sudo) make install from the src directory.
+
+\section*{Tests and Examples}
+Tests and examples can be found under the src/test directory. Running make in this directory will assemble and link all of the test programs.
+
+\section*{Building and Running Examples}
+run them with \begin{verbatim}
+  harptool -E -c example.bin
+\end{verbatim}
+(That's -E for emulate and -c to specify the input file)
+How to use HarpTool to assemble and link HARP assembly can be seen from looking at output of building some of the tests
+\begin{verbatim}
+../harptool -A -o vector_dot.HOF vector_dot.s
+\end{verbatim}
+Assemble a .s assembly file to a .HOF (HARP object file)
+\begin{verbatim}
+../harptool -L -o vector_dot.bin boot.HOF lib.HOF vector_dot.HOF
+\end{verbatim}
+Sink several HARP object files into a .bin file that can be run with the emulator (as above)\\
+\\
+It can also use the --arch parameter to modify what arch it is assembled and linked for.
+\begin{verbatim}
+../harptool -A --arch 4b16/16/2 -o vector_dot.4b.HOF vector_dot.s
+../harptool -L --arch 4b16/16/2 -o vector_dot.4b.bin boot.4b.HOF lib.4b.HOF vector_dot.4b.HOF
+\end{verbatim}
+
+\section*{Pitfalls and Gotchas}
+\begin{itemize}
+
+
+\item{Be careful to not use opcodes that do not exist - as of right now HarpTool will silently convert them to noops. This can be the source of hard to find bugs.}
+\item{Be careful to note that the main lane of execution is lane 0 when doing SIMD execution, and that it will retain the register state it had during SIMD execution when the lanes rejoin.}
+\end{itemize}
+
+\section*{Architecture Identifier String (\texttt{ArchID})}
+The best way to understand the multifaceted parameterizablity of the HARP ISAs is to study the architecture identifier strings used to uniquely identify a single HARP instruction set architecture.
+We'll start by breaking down Harptool's default \texttt{ArchID}: \texttt{8w32/32/8}:
+
+\begin{center}
+\begin{tabular}{rl}
+\textbf{Field}&\textbf{Meaning}\\
+\hline
+\texttt{8} &8-byte (64-bit) registers and addresses\\
+\texttt{w} &Word-based (64-bit) fixed-width instruction encoding\\
+\texttt{32}&32 general-purpose registers per lane\\
+\texttt{32}&32 predicate registers per lane\\
+\texttt{8} &8 SIMD lanes\\
+\end{tabular}
+\end{center}
+
+All ArchIDs have a similar format, although the SIMD lanes field can be omitted, as object files are still fully compatible even if the number of lanes changes. 
+
+
+
+\section*{Assembly Syntax}
+The assembler converts assembly files to HOF, the Harp Object Format.
+
+The assembly language is fairly easy to pick up from the HarpTools examples. It is RISC-like, and written destination register first (in this it differs from Unix assembly syntax).
+Lines are ended by a semicolon. Comments are done C-style, like /* this */
+Registers names are prefixed with the percent sign (\%) and predicate register names with the at symbol (@).
+Predicated instructions are prefixed with the predicate register name and a question mark:
+\begin{verbatim}
+  @p0 ? addi %r7, %r1, #1
+\end{verbatim}
+A small set of directives is provided to express non-instruction data:
+
+\begin{center}
+\begin{tabular}{cl}
+\textbf{Directive}&\textbf{Use}\\
+\hline
+\texttt{.align 256}    &Align next symbol to a multiple of 256 bytes.\\
+\texttt{.word 0x1234}  &Insert a word with the value \texttt{0x1234}.\\
+\texttt{.byte 0xff}    &Insert a byte with the value \texttt{0xff}.\\
+\texttt{.def SYM 123}  &Replace SYM with 123 in immediate operands.\\
+\texttt{.entry}        &Make the next label the HOF executable entry point.\\
+\texttt{.global}       &Give the next label global (external) linkage.\\
+\texttt{.perm rw}      &Set HOF permissions of the next label to read/write.\\
+\texttt{.string "Str"} &Create a null terminated string.\\
+\end{tabular}
+\end{center}
+
+\section*{SIMD Operation}
+The HARP ISAs are inherently SIMD.
+In addition to designs with a single set of functional units and architectural registers, designs are allowed that replicate these while retaining a single front-end and memory system.
+This allows for multiple threads executing the same stream of instructions to simultaneously occupy multiple ``lanes'' of the processor.
+When a predicated control flow instruction occurs without unanimous agreement among predicate registers, a divergent branch has occurred.
+The current response to this is to trap to the operating system (interrupt number 4).
+
+\subsection{Instructions for SIMD Operation}
+The \texttt{clone}, \texttt{jalis}, \texttt{jalrs}, and \texttt{jmprt} instructions form the basis of SIMD context control in the HARP instruction set.
+Context is created using \texttt{clone}, the waiting threads are spawned using \texttt{jalrs} or \texttt{jalis}, ``jump-and-link immediate/register and spawn'', and finally the parallel section returns using \texttt{jmprt}, ``jump register and terminate'', best thought of as ``return and terminate.''
+
+\section*{Assembler}
+The assembler assembles a .s assembly file into a .HOF object file.\\
+It can be given an optional archID parameter to control the architecture of the assembled object file.
+\begin{verbatim}
+harptool -A -o output.HOF input.s
+\end{verbatim}
+
+\section*{Linker}
+The linker combines HOF files and produces raw RAM images for use by the emulator.\\
+An intended future use is the conversion of multiple HOF files to statically-linked HOF executables.\\
+It also takes an optional archID parameter.
+\begin{verbatim}
+harptool -L -o output.bin obj1.HOF obj2.HOF obj3.HOF
+\end{verbatim}
+
+\section*{Emulator}
+The emulator emulates a HARP system. It is provided with the .bin containing the memory state to be run and an optional archID parameter.
+\begin{verbatim}
+  harptool -E -c example.bin
+\end{verbatim}
+
+\section*{Disassembler}
+The disassembler is used to convert HOF files to equivalent assembly files.
+One of its intended uses is the conversion of HOF object files between different HARP ISAs, say from 8w32/32 to 8b32/32.
+
+
+\section{Interrupts}
+The HARP interrupt mechanism is simple.
+For SIMD lane 0, there is a shadow register file, program counter, and active lane count.
+When an interrupt occurs, the state of lane zero is saved into these shadow registers, and execution resumes at the kernel entry point.
+The type of interrupt is specified by the value placed in register 0 at this time, according to the following table:
+
+\begin{center}
+\begin{tabular}{cl}
+\textbf{Number}&\textbf{Description}\\
+\hline
+0    &Trap (user-generated interrupt)\\
+1    &Page fault due to absence from TLB\\
+2    &Page fault due to permission violation\\
+3    &Invalid/unsupported instruction\\
+4    &Divergent branch\\
+5    &Numerical domain (divide by zero)\\
+6-7&(reserved for future exceptions)\\
+8    &Console input\\
+\end{tabular}
+\end{center}
+
+The first eight interrupt numbers are reserved for internal CPU-generated exceptions, and all of the remaining numbers are free for use by hardware.
+
+
+%\begin{center}
+%\includegraphics{fig/simd_core}
+%\end{center}
+
+
+
+\section{Default I/O Devices}
+The emulator currently only supports a single I/O device, simple console I/O.
+Writing to the address \texttt{0x800...0} (an address with its MSB set and all other bits cleared) causes text to be written to the display.
+Input on this console interface causes an interrupt (number 8).
+
+\end{document}
